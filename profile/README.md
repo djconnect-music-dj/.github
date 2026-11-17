@@ -10,6 +10,8 @@ DJConnect is an AI DJ for Home Assistant-powered music experiences. It brings mu
 
 | Project | Repository |
 | --- | --- |
+| Home Assistant integration | [djconnect](https://github.com/djconnect-music-dj/djconnect) |
+| API for push relay and client wake events | [djconnect-api](https://github.com/djconnect-music-dj/djconnect-api) |
 | Apple app for iOS and macOS | [djconnect-app](https://github.com/djconnect-music-dj/djconnect-app) |
 | Windows app | [djconnect-windows](https://github.com/djconnect-music-dj/djconnect-windows) |
 | Raspberry Pi app | [djconnect-pi](https://github.com/djconnect-music-dj/djconnect-pi) |
