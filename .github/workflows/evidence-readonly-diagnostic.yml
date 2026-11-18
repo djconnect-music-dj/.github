@@ -1,0 +1,22 @@
+name: Read-only evidence diagnostic
+on:
+  workflow_run:
+    workflows: ['Policy snapshot validation']
+    types: [completed]
+    branches: [main]
+permissions:
+  actions: read
+  checks: read
+  contents: read
+  pull-requests: read
+  statuses: read
+jobs:
+  diagnose:
+    if: github.event.workflow_run.conclusion == 'success'
+    uses: djconnect-music-dj/djconnect-shared-workflows/.github/workflows/post-merge-evidence-readonly-diagnostic.yml@db4dd51446c1bc8f9b80ebe1c2581eee1450ded9
+    with:
+      policy_source_ref: e02b452ed799b82a05500efbaa5ee41f74a046ed
+      required_main_workflow: Policy snapshot validation
+      required_check_contexts: '["validate"]'
+      repository_role: active_source
+      coverage_artifact_name: policy-snapshot-coverage
