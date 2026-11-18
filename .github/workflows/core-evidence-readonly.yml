@@ -44,63 +44,73 @@ jobs:
             if (!["active_source", "release_source", "distribution"].includes(repositoryRole)) {
               throw new Error("repository_role is invalid");
             }
-            // BEGIN exact commit-file pagination: static metadata repeats per page.
-            async function collectCommitFiles(getCommit, owner, repo, sha) {
-              const files = [];
-              const names = new Set();
-              let commit = null;
-              for (let page = 1; page <= 30; page++) {
-                const response = await getCommit({owner, repo, ref: sha, per_page: 100, page});
-                const data = response.data;
-                if (data?.sha !== sha || !Array.isArray(data.parents) || !Array.isArray(data.files)) {
-                  throw new Error("Commit file provenance is incomplete or bound to another SHA");
-                }
-                if (commit && JSON.stringify(data.parents) !== JSON.stringify(commit.data.parents)) {
-                  throw new Error("Commit parent provenance changed across pages");
-                }
-                if (!commit) commit = response;
-                for (const file of data.files) {
-                  if (typeof file.filename !== "string" || !file.filename || names.has(file.filename)) {
-                    throw new Error("Commit file provenance has an invalid or repeated path");
+            const commit = await github.rest.repos.getCommit({owner, repo, ref: mainSha});
+            // BEGIN exact-PR fallback. Two identical complete inventories detect
+            // observed pagination drift; they are not an atomic GitHub snapshot.
+            async function resolveOriginatingPR(github, owner, repo, mainSha) {
+              const matches = pr => pr?.merged_at && pr.base?.ref === "main" &&
+                pr.base?.repo?.full_name === `${owner}/${repo}` && pr.merge_commit_sha === mainSha &&
+                Number.isSafeInteger(pr.number) && pr.number > 0;
+              async function inventory(fetchPage, expectedPath) {
+                const rows = [];
+                const numbers = new Set();
+                for (let page = 1; page <= 100; page++) {
+                  const response = await fetchPage(page);
+                  if (!Array.isArray(response.data)) throw new Error("Invalid PR inventory page");
+                  for (const item of response.data) {
+                    if (!Number.isSafeInteger(item.number) || item.number < 1 || numbers.has(item.number) ||
+                        typeof item.updated_at !== "string") throw new Error("Incomplete or duplicate PR inventory");
+                    numbers.add(item.number);
+                    rows.push(item);
                   }
-                  names.add(file.filename);
-                  files.push(file);
-                }
-                // GitHub caps this endpoint at 3000 files. At that boundary
-                // complete coverage cannot be established, even without a next link.
-                if (files.length >= 3000) throw new Error("Commit diff reaches the API file cap");
-                const link = response.headers?.link;
-                let next = null;
-                if (link !== undefined && link !== "") {
-                  if (typeof link !== "string") throw new Error("Invalid commit pagination Link header");
-                  const relations = new Set();
-                  for (const entry of link.split(",")) {
-                    const match = /^\s*<([^>]+)>;\s*rel="([a-z]+)"\s*$/.exec(entry);
-                    if (!match || !["next", "prev", "first", "last"].includes(match[2]) || relations.has(match[2])) throw new Error("Malformed commit pagination Link header");
-                    relations.add(match[2]);
-                    if (match[2] === "next") next = match[1];
+                  const link = response.headers?.link;
+                  let next = null;
+                  if (link !== undefined && link !== "") {
+                    if (typeof link !== "string") throw new Error("Invalid pagination Link header");
+                    const relations = new Set();
+                    for (const entry of link.split(",")) {
+                      const match = /^\s*<([^>]+)>;\s*rel="([a-z]+)"\s*$/.exec(entry);
+                      if (!match || relations.has(match[2])) throw new Error("Malformed pagination Link header");
+                      relations.add(match[2]);
+                      if (match[2] === "next") next = match[1];
+                    }
                   }
+                  if (!next) {
+                    if (response.data.length === 100) throw new Error("Full PR page without next link");
+                    return rows;
+                  }
+                  let nextUrl;
+                  try { nextUrl = new URL(next); } catch { throw new Error("Invalid next URL"); }
+                  if (nextUrl.protocol !== "https:" || nextUrl.hostname !== "api.github.com" || nextUrl.port ||
+                      nextUrl.username || nextUrl.password || nextUrl.hash || nextUrl.pathname !== expectedPath ||
+                      nextUrl.searchParams.getAll("page").length !== 1 || nextUrl.searchParams.get("page") !== String(page + 1) ||
+                      nextUrl.searchParams.getAll("per_page").length !== 1 || nextUrl.searchParams.get("per_page") !== "100")
+                    throw new Error("Unexpected next URL");
+                  if (!response.data.length || page === 100) throw new Error("Incomplete PR pagination");
                 }
-                if (!next) return {commit, files};
-                let nextUrl;
-                try { nextUrl = new URL(next); } catch { throw new Error("Invalid commit pagination URL"); }
-                if (nextUrl.protocol !== "https:" || nextUrl.hostname !== "api.github.com" || nextUrl.port ||
-                    nextUrl.username || nextUrl.password || nextUrl.hash ||
-                    [...nextUrl.searchParams.keys()].some(key => key !== "page" && key !== "per_page") ||
-                    nextUrl.pathname !== `/repos/${owner}/${repo}/commits/${sha}` ||
-                    nextUrl.searchParams.getAll("page").length !== 1 || nextUrl.searchParams.get("page") !== String(page + 1) ||
-                    nextUrl.searchParams.getAll("per_page").length !== 1 || nextUrl.searchParams.get("per_page") !== "100")
-                  throw new Error("Unexpected commit pagination URL");
-                if (data.files.length === 0) throw new Error("Empty commit page has a next link");
+                throw new Error("PR pagination exceeds limit");
               }
-              throw new Error("Commit pagination exceeded its qualified bound");
+              const assoc = await inventory(page => github.rest.repos.listPullRequestsAssociatedWithCommit(
+                {owner, repo, commit_sha: mainSha, per_page: 100, page}), `/repos/${owner}/${repo}/commits/${mainSha}/pulls`);
+              let candidates = assoc.filter(matches);
+              if (candidates.length === 0) {
+                const scan = () => inventory(page => github.rest.pulls.list(
+                  {owner, repo, state: "closed", sort: "created", direction: "asc", per_page: 100, page}), `/repos/${owner}/${repo}/pulls`);
+                const first = await scan();
+                const second = await scan();
+                const fingerprint = rows => JSON.stringify(rows.map(pr => [pr.number, pr.updated_at,
+                  pr.merged_at, pr.merge_commit_sha, pr.base?.ref, pr.base?.repo?.full_name]));
+                if (fingerprint(first) !== fingerprint(second)) throw new Error("PR inventory changed during pagination");
+                candidates = second.filter(matches);
+              }
+              if (candidates.length !== 1) return null;
+              const pr = await github.rest.pulls.get({owner, repo, pull_number: candidates[0].number});
+              if (!matches(pr.data) || pr.data.number !== candidates[0].number || pr.data.merged !== true ||
+                  !/^[0-9a-f]{40}$/.test(pr.data.head?.sha || "")) throw new Error("PR readback mismatch");
+              return pr;
             }
-            const {commit, files: commitFiles} = await collectCommitFiles(
-              options => github.rest.repos.getCommit(options), owner, repo, mainSha);
-            // END exact commit-file pagination.
-            const associated = await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit, {owner, repo, commit_sha: mainSha, per_page: 100});
-            const candidates = associated.filter(pr => pr.merged_at && pr.base.ref === "main" && pr.merge_commit_sha === mainSha);
-            const pr = candidates.length === 1 ? await github.rest.pulls.get({owner, repo, pull_number: candidates[0].number}) : null;
+            const pr = await resolveOriginatingPR(github, owner, repo, mainSha);
+            // END exact-PR fallback.
             const prFiles = pr ? await github.paginate(github.rest.pulls.listFiles, {owner, repo, pull_number: pr.data.number, per_page: 100}) : [];
             const prContexts = pr ? await github.graphql(`query($owner:String!,$repo:String!,$sha:GitObjectID!){repository(owner:$owner,name:$repo){object(oid:$sha){... on Commit {statusCheckRollup {contexts(first:100){nodes{__typename ... on CheckRun{name status conclusion} ... on StatusContext{context state description}}}}}}}}`, {owner, repo, sha: pr.data.head.sha}) : null;
             const contextNodes = prContexts?.repository?.object?.statusCheckRollup?.contexts?.nodes || [];
@@ -162,7 +172,7 @@ jobs:
               : {sha: mainSha, ci: okMain ? "PASS" : "FAIL", tests: okMain ? "PASS" : "FAIL", lint: okMain ? "PASS" : "FAIL", static_analysis: okMain ? "PASS" : "FAIL", build_validation: okMain ? "PASS" : "FAIL", governance: okMain ? "PASS" : "FAIL", coverage: coverage ? "PASS" : "FAIL", coverage_report_sha: coverage ? mainSha : null, coverage_artifact_sha: coverage?.digest || null, workflow_run_ids: mainRun ? [String(mainRun.id)] : []};
             const request = {
               repository: `${owner}/${repo}`, repository_role: process.env.REPOSITORY_ROLE, main_sha: mainSha, main_parents: commit.data.parents.map(parent => parent.sha), timestamp: new Date().toISOString(),
-              originating_pr: pr ? {number: pr.data.number, state: pr.data.merged ? "MERGED" : "OPEN", base_ref: pr.data.base.ref, head_sha: pr.data.head.sha, merge_commit_sha: pr.data.merge_commit_sha, merge_strategy: pr.data.merge_commit_sha === mainSha && commit.data.parents.length === 1 ? "SQUASH" : "MERGE", merge_actor: pr.data.merged_by?.login, merged_at: pr.data.merged_at, changed_files: prFiles.map(file => file.filename), main_changed_files: commitFiles.map(file => file.filename)} : null,
+              originating_pr: pr ? {number: pr.data.number, state: pr.data.merged ? "MERGED" : "OPEN", base_ref: pr.data.base.ref, head_sha: pr.data.head.sha, merge_commit_sha: pr.data.merge_commit_sha, merge_strategy: pr.data.merge_commit_sha === mainSha && commit.data.parents.length === 1 ? "SQUASH" : "MERGE", merge_actor: pr.data.merged_by?.login, merged_at: pr.data.merged_at, changed_files: prFiles.map(file => file.filename), main_changed_files: (commit.data.files || []).map(file => file.filename)} : null,
               pre_merge: pr ? {candidate_sha: pr.data.head.sha, risk_classification: risk, owner_authorization: risk === "HIGH_RISK" ? (ownerStatus?.state === "SUCCESS" ? "PASS" : "FAIL") : "PASS", verification: checkPass("Trusted Delivery qualification / Qualify trusted delivery") ? "PASS" : "FAIL", software_assurance: checkPass("Software Assurance governance / Validate canonical governance policy") ? "PASS" : "FAIL", trusted_delivery: checkPass("Trusted Delivery qualification / Qualify trusted delivery") ? "PASS" : "FAIL", workflow_integrity: checkPass("Trusted Delivery qualification / Qualify trusted delivery") ? "PASS" : "FAIL", required_checks: requiredContexts.size > 0 && [...requiredContexts].every(requiredCheckPass) ? "PASS" : "FAIL"} : null,
               post_merge: postMerge
             };
@@ -171,7 +181,7 @@ jobs:
             fs.writeFileSync("reconciliation-request.json", JSON.stringify(request));
 
       - name: Evaluate without publishing evidence
-        working-directory: reconciliation-policy/policy-snapshots/evidence-4877
+        working-directory: reconciliation-policy/policy-snapshots/evidence-ebbb
         run: |
           python - <<'PYCODE'
           import json
