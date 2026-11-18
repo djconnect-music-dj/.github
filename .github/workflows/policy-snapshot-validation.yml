@@ -6,6 +6,7 @@ on:
       - 'tests/test_policy_snapshots.py'
       - '.github/workflows/policy-snapshot-validation.yml'
       - '.github/workflows/evidence-readonly-diagnostic.yml'
+      - '.github/workflows/core-evidence-readonly.yml'
   push:
     branches: [main]
     paths:
@@ -13,6 +14,7 @@ on:
       - 'tests/test_policy_snapshots.py'
       - '.github/workflows/policy-snapshot-validation.yml'
       - '.github/workflows/evidence-readonly-diagnostic.yml'
+      - '.github/workflows/core-evidence-readonly.yml'
 permissions:
   contents: read
 jobs:
