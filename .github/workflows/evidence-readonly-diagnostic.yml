@@ -13,9 +13,9 @@ permissions:
 jobs:
   diagnose:
     if: github.event.workflow_run.conclusion == 'success'
-    uses: djconnect-music-dj/djconnect-shared-workflows/.github/workflows/post-merge-evidence-readonly-diagnostic.yml@db4dd51446c1bc8f9b80ebe1c2581eee1450ded9
+    uses: ./.github/workflows/policy-evidence-readonly-self.yml
     with:
-      policy_source_ref: e02b452ed799b82a05500efbaa5ee41f74a046ed
+      policy_source_ref: ${{ github.event.workflow_run.head_sha }}
       required_main_workflow: Policy snapshot validation
       required_check_contexts: '["validate"]'
       repository_role: active_source

@@ -35,7 +35,7 @@ for profile in ("balanced", "release"):
         self.assertIn("target.id !== 1258575431", text)
         self.assertIn("Core main changed during readback", text)
         self.assertIn("ha-cobertura-coverage", text)
-        self.assertIn("e02b452ed799b82a05500efbaa5ee41f74a046ed", text)
+        self.assertIn("ref: ${{ github.sha }}", text)
         self.assertNotIn(": write", text)
         self.assertNotIn("gh release", text)
         self.assertNotIn("createCommitStatus", text)
@@ -45,10 +45,28 @@ for profile in ("balanced", "release"):
         text = (ROOT.parent / ".github/workflows/evidence-readonly-diagnostic.yml").read_text()
         self.assertIn("workflow_run:", text)
         self.assertIn("Policy snapshot validation", text)
-        self.assertIn("post-merge-evidence-readonly-diagnostic.yml@db4dd51446c1bc8f9b80ebe1c2581eee1450ded9", text)
-        self.assertIn("policy_source_ref: e02b452ed799b82a05500efbaa5ee41f74a046ed", text)
+        self.assertIn("./.github/workflows/policy-evidence-readonly-self.yml", text)
+        self.assertIn("policy_source_ref: ${{ github.event.workflow_run.head_sha }}", text)
         self.assertNotIn(": write", text)
         self.assertNotIn("gh release", text)
+
+    def test_self_contained_governance_and_diagnostic_keep_identity_guards(self):
+        workflows = ROOT.parent / ".github/workflows"
+        policy = (workflows / "policy-snapshot-validation.yml").read_text()
+        self.assertEqual(policy.count("./.github/workflows/policy-governance-self.yml"), 2)
+        governance = (workflows / "policy-governance-self.yml").read_text()
+        self.assertIn("repo.id !== 1461539726", governance)
+        self.assertIn("ref: ${{ steps.policy-revision.outputs.sha }}", governance)
+        self.assertIn("policySha = base.sha", governance)
+        self.assertIn("current.data.commit?.sha !== policySha", governance)
+        self.assertIn("validate_rollout_candidate", governance)
+        self.assertIn("validate_action_runtimes", governance)
+        diagnostic = (workflows / "policy-evidence-readonly-self.yml").read_text()
+        self.assertIn("EXPECTED_POLICY_REF: ${{ github.event.workflow_run.head_sha }}", diagnostic)
+        self.assertIn("test \"$POLICY_REF\" = \"$EXPECTED_POLICY_REF\"", diagnostic)
+        self.assertIn("test \"$POLICY_REF\" = \"$WORKFLOW_REVISION\"", diagnostic)
+        self.assertNotIn(": write", diagnostic)
+        self.assertNotIn("gh release", diagnostic)
 
     def test_parentless_commit_is_not_qualified(self):
         code = '''

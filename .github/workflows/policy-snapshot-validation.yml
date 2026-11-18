@@ -4,17 +4,23 @@ on:
     paths:
       - 'policy-snapshots/**'
       - 'tests/test_policy_snapshots.py'
+      - 'tests/policy-revision-selection.test.cjs'
       - '.github/workflows/policy-snapshot-validation.yml'
       - '.github/workflows/evidence-readonly-diagnostic.yml'
       - '.github/workflows/core-evidence-readonly.yml'
+      - '.github/workflows/policy-governance-self.yml'
+      - '.github/workflows/policy-evidence-readonly-self.yml'
   push:
     branches: [main]
     paths:
       - 'policy-snapshots/**'
       - 'tests/test_policy_snapshots.py'
+      - 'tests/policy-revision-selection.test.cjs'
       - '.github/workflows/policy-snapshot-validation.yml'
       - '.github/workflows/evidence-readonly-diagnostic.yml'
       - '.github/workflows/core-evidence-readonly.yml'
+      - '.github/workflows/policy-governance-self.yml'
+      - '.github/workflows/policy-evidence-readonly-self.yml'
 permissions:
   contents: read
 jobs:
@@ -30,17 +36,19 @@ jobs:
           python-version: '3.11'
       - name: Validate snapshots offline
         run: python -m unittest discover -s tests -p test_policy_snapshots.py -v
+      - name: Validate trusted policy selection
+        run: node --test tests/policy-revision-selection.test.cjs
   governance-balanced:
     permissions:
       contents: read
-    uses: djconnect-music-dj/djconnect-shared-workflows/.github/workflows/software-assurance-governance-org-v1.yml@38018fb71005d09e2eb8a58277bd7bfc500c8528
+    uses: ./.github/workflows/policy-governance-self.yml
     with:
       execution_profile: balanced
       owner: djconnect-music-dj/.github
   governance-release:
     permissions:
       contents: read
-    uses: djconnect-music-dj/djconnect-shared-workflows/.github/workflows/software-assurance-governance-org-v1.yml@38018fb71005d09e2eb8a58277bd7bfc500c8528
+    uses: ./.github/workflows/policy-governance-self.yml
     with:
       execution_profile: release
       owner: djconnect-music-dj/.github

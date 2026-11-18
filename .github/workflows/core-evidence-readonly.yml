@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: djconnect-music-dj/.github
-          ref: e02b452ed799b82a05500efbaa5ee41f74a046ed
+          ref: ${{ github.sha }}
           path: reconciliation-policy
           persist-credentials: false
       - id: collect
