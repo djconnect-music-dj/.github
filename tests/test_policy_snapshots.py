@@ -28,6 +28,15 @@ for profile in ("balanced", "release"):
             with self.subTest(snapshot=name):
                 self.run_snapshot(name, code)
 
+    def test_diagnostic_caller_is_read_only_and_uses_exact_workflow(self):
+        text = (ROOT.parent / ".github/workflows/evidence-readonly-diagnostic.yml").read_text()
+        self.assertIn("workflow_run:", text)
+        self.assertIn("Policy snapshot validation", text)
+        self.assertIn("post-merge-evidence-readonly-diagnostic.yml@db4dd51446c1bc8f9b80ebe1c2581eee1450ded9", text)
+        self.assertIn("policy_source_ref: e02b452ed799b82a05500efbaa5ee41f74a046ed", text)
+        self.assertNotIn(": write", text)
+        self.assertNotIn("gh release", text)
+
     def test_parentless_commit_is_not_qualified(self):
         code = '''
 from tools.trusted_delivery.post_merge_reconciliation import reconcile

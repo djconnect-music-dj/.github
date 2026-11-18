@@ -5,12 +5,14 @@ on:
       - 'policy-snapshots/**'
       - 'tests/test_policy_snapshots.py'
       - '.github/workflows/policy-snapshot-validation.yml'
+      - '.github/workflows/evidence-readonly-diagnostic.yml'
   push:
     branches: [main]
     paths:
       - 'policy-snapshots/**'
       - 'tests/test_policy_snapshots.py'
       - '.github/workflows/policy-snapshot-validation.yml'
+      - '.github/workflows/evidence-readonly-diagnostic.yml'
 permissions:
   contents: read
 jobs:
