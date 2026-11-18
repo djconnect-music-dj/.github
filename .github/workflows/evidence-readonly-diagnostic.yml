@@ -1,0 +1,22 @@
+name: Read-only evidence diagnostic
+on:
+  workflow_run:
+    workflows: ['Policy snapshot validation']
+    types: [completed]
+    branches: [main]
+permissions:
+  actions: read
+  checks: read
+  contents: read
+  pull-requests: read
+  statuses: read
+jobs:
+  diagnose:
+    if: github.event.workflow_run.conclusion == 'success'
+    uses: ./.github/workflows/policy-evidence-readonly-self.yml
+    with:
+      policy_source_ref: ${{ github.event.workflow_run.head_sha }}
+      required_main_workflow: Policy snapshot validation
+      required_check_contexts: '["validate"]'
+      repository_role: active_source
+      coverage_artifact_name: policy-snapshot-coverage
