@@ -28,6 +28,19 @@ for profile in ("balanced", "release"):
             with self.subTest(snapshot=name):
                 self.run_snapshot(name, code)
 
+    def test_core_diagnostic_is_manual_and_read_only(self):
+        text = (ROOT.parent / ".github/workflows/core-evidence-readonly.yml").read_text()
+        self.assertIn("workflow_dispatch:", text)
+        self.assertIn("github.actor_id == '19624891'", text)
+        self.assertIn("target.id !== 1258575431", text)
+        self.assertIn("Core main changed during readback", text)
+        self.assertIn("ha-cobertura-coverage", text)
+        self.assertIn("e02b452ed799b82a05500efbaa5ee41f74a046ed", text)
+        self.assertNotIn(": write", text)
+        self.assertNotIn("gh release", text)
+        self.assertNotIn("createCommitStatus", text)
+        self.assertNotIn("upload-artifact", text)
+
     def test_diagnostic_caller_is_read_only_and_uses_exact_workflow(self):
         text = (ROOT.parent / ".github/workflows/evidence-readonly-diagnostic.yml").read_text()
         self.assertIn("workflow_run:", text)
